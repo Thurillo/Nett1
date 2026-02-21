@@ -1,7 +1,8 @@
 {
+  "_comment": "frontend/package.json - 21/02/2026 - V 0.13",
   "name": "nett1-frontend",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.13.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

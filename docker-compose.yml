@@ -1,0 +1,55 @@
+# docker-compose.yml - 21/02/2026 - V 0.13
+version: '3.8'
+
+services:
+  database:
+    image: postgres:15-alpine
+    container_name: nett1-db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: nett1
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - nett1-net
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: nett1-api
+    environment:
+      - DB_HOST=database
+      - DB_USER=admin
+      - DB_PASSWORD=supersecretpassword
+      - DB_NAME=nett1
+      - DB_PORT=5432
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - database
+    networks:
+      - nett1-net
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: nett1-ui
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - nett1-net
+    restart: unless-stopped
+
+networks:
+  nett1-net:
+    driver: bridge
+
+volumes:
+  pgdata:

@@ -1,3 +1,4 @@
+# backend/Dockerfile - 21/02/2026 - V 0.13
 FROM node:18-alpine
 
 # Imposta la directory di lavoro nel container
@@ -7,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# Copia tutto il resto del codice sorgente (es. server.js)
+# Copia tutto il resto del codice sorgente
 COPY . .
 
 # Esponi la porta usata dall'API
