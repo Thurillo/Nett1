@@ -1,4 +1,4 @@
-// frontend/src/App.jsx - 21/02/2026 - V 0.20
+// frontend/src/App.jsx - 21/02/2026 - V 0.21
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard, Server, Monitor, Globe, Network,
@@ -7,7 +7,7 @@ import {
   Share2, GitCommit, Link as LinkIcon, FolderTree, Hash,
   FileText, Download, History, BarChart3, Cpu, Laptop,
   ExternalLink, Info, Users, ShieldCheck, BookOpen, Database,
-  X, Check, ChevronRight, Save
+  X, Check, ChevronRight, Save, AlertTriangle
 } from 'lucide-react';
 
 // =========================================================================
@@ -444,20 +444,53 @@ const InventoryView = ({ category, title, devices, setDevices, deviceTypes, rack
 };
 
 // --- VIEW: DEVICE TYPES ---
-const DeviceTypesView = ({ types, setTypes, apiStatus }) => {
+const DeviceTypesView = ({ types, setTypes, devices, apiStatus }) => {
   const [isAdding, setIsAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: '', category: 'network', isRackable: true });
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    if (apiStatus === 'connected') {
-      try {
-        const res = await fetch('/api/v1/device-types', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-        setTypes([...types, await res.json()]);
-      } catch (e) { setTypes([...types, { ...form, id: Date.now() }]); }
-    } else { setTypes([...types, { ...form, id: Date.now() }]); }
-    setIsAdding(false);
+  const resetForm = () => {
     setForm({ name: '', category: 'network', isRackable: true });
+    setEditing(null);
+    setIsAdding(false);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (editing) {
+      if (apiStatus === 'connected') {
+        try {
+          await fetch(`/api/v1/device-types/${editing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+        } catch (e) {}
+      }
+      setTypes(types.map(t => t.id === editing.id ? { ...t, ...form } : t));
+    } else {
+      if (apiStatus === 'connected') {
+        try {
+          const res = await fetch('/api/v1/device-types', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+          setTypes([...types, await res.json()]);
+        } catch (e) { setTypes([...types, { ...form, id: Date.now() }]); }
+      } else { setTypes([...types, { ...form, id: Date.now() }]); }
+    }
+    resetForm();
+  };
+
+  const startEdit = (type) => {
+    setEditing(type);
+    setForm({ name: type.name, category: type.category, isRackable: type.isRackable });
+    setIsAdding(true);
+  };
+
+  const deleteType = async (id) => {
+    const type = types.find(t => t.id === id);
+    const isInUse = devices.some(d => d.type === type.name);
+    if (isInUse) {
+      // In un'app reale mostreremmo un messaggio all'utente
+      console.warn("Impossibile eliminare: tipo in uso.");
+      return;
+    }
+    if (apiStatus === 'connected') await fetch(`/api/v1/device-types/${id}`, { method: 'DELETE' });
+    setTypes(types.filter(t => t.id !== id));
   };
 
   return (
@@ -473,23 +506,47 @@ const DeviceTypesView = ({ types, setTypes, apiStatus }) => {
       </div>
 
       {isAdding && (
-        <form onSubmit={handleAdd} className="bg-white p-6 rounded-2xl shadow-lg border border-blue-50 flex gap-6 items-end animate-in fade-in slide-in-from-top-4">
-          <div className="flex-1">
-            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Nome Categoria</label>
-            <input required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Es. Access Point" />
+        <form onSubmit={handleSave} className="bg-white p-6 rounded-2xl shadow-lg border border-blue-50 animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-sm font-black text-slate-800 uppercase flex items-center">
+              {editing ? <Edit size={16} className="mr-2 text-blue-600"/> : <Plus size={16} className="mr-2 text-blue-600"/>}
+              {editing ? 'Modifica Categoria' : 'Nuova Categoria'}
+            </h3>
+            {editing && devices.some(d => d.type === editing.name) && (
+              <div className="flex items-center space-x-2 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
+                <AlertTriangle size={14} />
+                <span className="text-[10px] font-bold uppercase">Nome bloccato: categoria in uso nell'inventario</span>
+              </div>
+            )}
           </div>
-          <div className="w-64">
-            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Gruppo Logico</label>
-            <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
-              <option value="network">Infrastruttura di Rete</option>
-              <option value="peripheral">Endpoint & Periferiche</option>
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="flex-1">
+              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Nome Categoria</label>
+              <input
+                required
+                className={`w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm ${editing && devices.some(d => d.type === editing.name) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                value={form.name}
+                onChange={e => setForm({...form, name: e.target.value})}
+                disabled={editing && devices.some(d => d.type === editing.name)}
+                placeholder="Es. Access Point"
+              />
+            </div>
+            <div className="w-full">
+              <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Gruppo Logico</label>
+              <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                <option value="network">Infrastruttura di Rete</option>
+                <option value="peripheral">Endpoint & Periferiche</option>
+              </select>
+            </div>
+            <div className="flex items-center space-x-3 mb-3 px-2">
+              <input type="checkbox" id="rackable" className="w-4 h-4 rounded text-blue-600" checked={form.isRackable} onChange={e => setForm({...form, isRackable: e.target.checked})} />
+              <label htmlFor="rackable" className="text-[10px] font-black text-slate-500 uppercase cursor-pointer">Rackable</label>
+            </div>
           </div>
-          <div className="flex items-center space-x-3 mb-3 px-2">
-            <input type="checkbox" id="rackable" className="w-4 h-4 rounded text-blue-600" checked={form.isRackable} onChange={e => setForm({...form, isRackable: e.target.checked})} />
-            <label htmlFor="rackable" className="text-[10px] font-black text-slate-500 uppercase cursor-pointer">Rackable</label>
+          <div className="flex justify-end space-x-3">
+             <button type="button" onClick={resetForm} className="px-6 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50">Annulla</button>
+             <button type="submit" className="bg-emerald-600 text-white px-8 py-2.5 rounded-xl font-black text-sm hover:bg-emerald-700 h-[44px] shadow-lg">Salva Modifiche</button>
           </div>
-          <button type="submit" className="bg-emerald-600 text-white px-8 py-2.5 rounded-xl font-black text-sm hover:bg-emerald-700 h-[44px] shadow-lg">Salva</button>
         </form>
       )}
 
@@ -500,16 +557,33 @@ const DeviceTypesView = ({ types, setTypes, apiStatus }) => {
               <th className="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</th>
               <th className="p-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Gruppo</th>
               <th className="p-5 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Montaggio Rack</th>
+              <th className="p-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Azioni</th>
             </tr>
           </thead>
           <tbody>
-            {types.map(t => (
-              <tr key={t.id} className="border-b last:border-0 hover:bg-slate-50/50">
-                <td className="p-5 font-black text-slate-700 tracking-tight">{t.name}</td>
-                <td className="p-5 text-xs text-slate-500 font-bold uppercase">{t.category === 'network' ? 'Network' : 'Peripheral'}</td>
-                <td className="p-5 text-center">{t.isRackable ? <Check className="text-green-500 mx-auto" size={18}/> : <X className="text-slate-300 mx-auto" size={18}/>}</td>
-              </tr>
-            ))}
+            {types.map(t => {
+              const inUse = devices.some(d => d.type === t.name);
+              return (
+                <tr key={t.id} className="border-b last:border-0 hover:bg-slate-50/50">
+                  <td className="p-5">
+                    <div className="font-black text-slate-700 tracking-tight">{t.name}</div>
+                    {inUse && <div className="text-[9px] font-black text-blue-500 uppercase mt-0.5">In uso nell'inventario</div>}
+                  </td>
+                  <td className="p-5 text-xs text-slate-500 font-bold uppercase">{t.category === 'network' ? 'Network' : 'Peripheral'}</td>
+                  <td className="p-5 text-center">{t.isRackable ? <Check className="text-green-500 mx-auto" size={18}/> : <X className="text-slate-300 mx-auto" size={18}/>}</td>
+                  <td className="p-5 text-right space-x-2">
+                    <button onClick={() => startEdit(t)} className="p-2 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Edit size={16}/></button>
+                    <button
+                      onClick={() => deleteType(t.id)}
+                      disabled={inUse}
+                      className={`p-2 rounded-lg transition-all ${inUse ? 'text-slate-200 cursor-not-allowed' : 'text-slate-300 hover:text-red-500 hover:bg-red-50'}`}
+                    >
+                      <Trash2 size={16}/>
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -626,7 +700,7 @@ export default function App() {
             {currentView === 'racks' && <RacksView racks={racks} setRacks={setRacks} devices={devices} setDevices={setDevices} deviceTypes={deviceTypes} apiStatus={apiStatus} />}
             {currentView === 'devices' && <InventoryView category="network" title="Dispositivi di Rete" devices={devices} setDevices={setDevices} deviceTypes={deviceTypes} racks={racks} apiStatus={apiStatus} />}
             {currentView === 'peripherals' && <InventoryView category="peripheral" title="Periferiche & Endpoint" devices={devices} setDevices={setDevices} deviceTypes={deviceTypes} racks={racks} apiStatus={apiStatus} />}
-            {currentView === 'device-types' && <DeviceTypesView types={deviceTypes} setTypes={setDeviceTypes} apiStatus={apiStatus} />}
+            {currentView === 'device-types' && <DeviceTypesView types={deviceTypes} setTypes={setDeviceTypes} devices={devices} apiStatus={apiStatus} />}
 
             {/* PLACEHOLDERS PER LE VISTE NON ANCORA IMPLEMENTATE */}
             {currentView === 'cabling' && <PlaceholderView title="Cablaggi Fisici" icon={GitCommit} msg="Modulo per la tracciatura delle patch tra switch, patch panel e terminazioni a muro." />}
