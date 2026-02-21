@@ -1,4 +1,4 @@
-# frontend/Dockerfile - 21/02/2026 - V 0.13
+# frontend/Dockerfile - 21/02/2026 - V 0.16
 FROM node:18-alpine as build
 WORKDIR /app
 COPY package*.json ./
@@ -14,6 +14,12 @@ RUN echo 'server { \
         root /usr/share/nginx/html; \
         index index.html; \
         try_files $uri $uri/ /index.html; \
+    } \
+    location /api/ { \
+        proxy_pass http://backend:3000/api/; \
+    } \
+    location /health { \
+        proxy_pass http://backend:3000/health; \
     } \
 }' > /etc/nginx/conf.d/default.conf
 EXPOSE 80

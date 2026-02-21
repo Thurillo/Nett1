@@ -1,4 +1,4 @@
-// frontend/src/App.jsx - 21/02/2026 - V 0.14
+// frontend/src/App.jsx - 21/02/2026 - V 0.16
 import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Server, Monitor, Globe, Network,
@@ -101,15 +101,34 @@ export default function App() {
   const [users, setUsers] = useState(initialUsers);
   const [auditLogs, setAuditLogs] = useState(initialAuditLogs);
 
-  const [apiStatus, setApiStatus] = useState('disconnected');
+  const [apiStatus, setApiStatus] = useState('checking');
   const [deviceToEditFromRack, setDeviceToEditFromRack] = useState(null);
 
   useEffect(() => {
-    // Simulazione del check di salute dell'API per far funzionare l'anteprima offline
-    const timer = setTimeout(() => {
-      setApiStatus('disconnected');
-    }, 1000);
-    return () => clearTimeout(timer);
+    const loadData = async () => {
+      try {
+        // Interroga il vero Backend Node.js
+        const resHealth = await fetch('/health');
+        if (resHealth.ok) {
+          setApiStatus('connected');
+
+          // Scarica gli armadi dal server
+          const resRacks = await fetch('/api/v1/racks');
+          if (resRacks.ok) setRacks(await resRacks.json());
+
+          // Scarica i dispositivi dal server
+          const resDevices = await fetch('/api/v1/devices');
+          if (resDevices.ok) setDevices(await resDevices.json());
+        } else {
+          setApiStatus('disconnected');
+        }
+      } catch (e) {
+        console.error("Backend non raggiungibile.", e);
+        setApiStatus('disconnected');
+      }
+    };
+
+    loadData();
   }, []);
 
   const SidebarItem = ({ icon: Icon, label, view }) => (
@@ -216,24 +235,63 @@ export default function App() {
     const [selectedRack, setSelectedRack] = useState(null);
     const [selectedDevice, setSelectedDevice] = useState(null);
 
-    const handleAdd = (e) => {
+    const handleAdd = async (e) => {
       e.preventDefault();
-      setRacks([...racks, { ...newRack, id: Date.now() }]);
+      if (apiStatus === 'connected') {
+        try {
+          // Salva il Rack sul Backend
+          const res = await fetch('/api/v1/racks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newRack)
+          });
+          const created = await res.json();
+          setRacks([...racks, created]);
+        } catch(e) { console.error(e); }
+      } else {
+        setRacks([...racks, { ...newRack, id: Date.now() }]);
+      }
       setIsAdding(false);
       setNewRack({ name: '', site: '', height: 42, location: '' });
     };
 
-    const deleteRack = (id) => setRacks(racks.filter(r => r.id !== id));
-    const handleSlotClick = (u) => setSelectedDevice({ isNew: true, position: u, name: '', type: 'Server', height: 1, status: 'attivo' });
-    const handleDeviceClick = (dev) => setSelectedDevice({ ...dev, isNew: false });
-
-    const saveDevicePosition = (e) => {
-      e.preventDefault();
-      if (selectedDevice.isNew) {
-        setDevices([...devices, { ...selectedDevice, id: Date.now(), rackId: selectedRack.id, locationType: 'rack', ports: [] }]);
-      } else {
-        setDevices(devices.map(d => d.id === selectedDevice.id ? { ...d, height: selectedDevice.height, position: selectedDevice.position } : d));
+    const deleteRack = async (id) => {
+      if (apiStatus === 'connected') {
+        await fetch(`/api/v1/racks/${id}`, { method: 'DELETE' });
       }
+      setRacks(racks.filter(r => r.id !== id));
+    };
+
+    const handleSlotClick = (u) => setSelectedDevice({ isNew: true, position: u, name: '', type: 'Server', height: 1, status: 'attivo' });
+    const saveDevicePosition = async (e) => {
+      e.preventDefault();
+      let updatedDevices = [...devices];
+
+      if (selectedDevice.isNew) {
+        const newDev = { ...selectedDevice, rackId: selectedRack.id, locationType: 'rack', ports: [] };
+        if (apiStatus === 'connected') {
+          const res = await fetch('/api/v1/devices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newDev)
+          });
+          const created = await res.json();
+          updatedDevices.push(created);
+        } else {
+          updatedDevices.push({ ...newDev, id: Date.now() });
+        }
+      } else {
+        if (apiStatus === 'connected') {
+          await fetch(`/api/v1/devices/${selectedDevice.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ height: selectedDevice.height, position: selectedDevice.position })
+          });
+        }
+        updatedDevices = devices.map(d => d.id === selectedDevice.id ? { ...d, height: selectedDevice.height, position: selectedDevice.position } : d);
+      }
+
+      setDevices(updatedDevices);
       setSelectedDevice(null);
     };
 
@@ -291,11 +349,11 @@ export default function App() {
              {selectedDevice ? (
                <div className="flex-1 w-full bg-white p-6 rounded-xl shadow-sm border border-gray-100 sticky top-6">
                  <div className="flex justify-between items-start mb-4 border-b border-gray-100 pb-3">
-                    <h3 className="text-lg font-bold text-gray-800">{selectedDevice.isNew ? `Aggiungi Rapido a U${selectedDevice.position}` : `Dettagli Apparato`}</h3>
-                 </div>
-                 {selectedDevice.isNew ? (
-                    <form onSubmit={saveDevicePosition} className="space-y-4">
-                      <div>
+                  <h3 className="text-lg font-bold text-gray-800">{selectedDevice.isNew ? `Aggiungi Rapido a U${selectedDevice.position}` : `Dettagli Apparato`}</h3>
+               </div>
+               {selectedDevice.isNew ? (
+                  <form onSubmit={saveDevicePosition} className="space-y-4">
+                    <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Nome Dispositivo</label>
                         <input required type="text" className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" value={selectedDevice.name} onChange={e => setSelectedDevice({...selectedDevice, name: e.target.value})} placeholder="Es. SRV-01" />
                       </div>
@@ -362,6 +420,25 @@ export default function App() {
             <Plus size={18} /> <span>Aggiungi Rack</span>
           </button>
         </div>
+
+        {isAdding && (
+          <form onSubmit={handleAdd} className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 mb-6 flex gap-4 items-end animate-in fade-in slide-in-from-top-4">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome Rack</label>
+              <input required type="text" className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" value={newRack.name} onChange={e => setNewRack({...newRack, name: e.target.value})} placeholder="Es. RACK-B01" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sito/Edificio</label>
+              <input type="text" className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" value={newRack.site} onChange={e => setNewRack({...newRack, site: e.target.value})} placeholder="Es. Milano HQ" />
+            </div>
+            <div className="w-32">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Altezza (U)</label>
+              <input required type="number" min="10" max="52" className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" value={newRack.height} onChange={e => setNewRack({...newRack, height: parseInt(e.target.value)})} />
+            </div>
+            <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 h-[42px] shadow-sm">Salva Rack</button>
+          </form>
+        )}
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-6">
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-50">
