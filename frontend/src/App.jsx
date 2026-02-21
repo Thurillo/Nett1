@@ -1,4 +1,4 @@
-// frontend/src/App.jsx - 21/02/2026 - V 0.16
+// frontend/src/App.jsx - 21/02/2026 - V 0.17
 import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Server, Monitor, Globe, Network,
@@ -257,12 +257,16 @@ export default function App() {
 
     const deleteRack = async (id) => {
       if (apiStatus === 'connected') {
-        await fetch(`/api/v1/racks/${id}`, { method: 'DELETE' });
+        try {
+          await fetch(`/api/v1/racks/${id}`, { method: 'DELETE' });
+        } catch(e) { console.error(e); }
       }
       setRacks(racks.filter(r => r.id !== id));
     };
 
     const handleSlotClick = (u) => setSelectedDevice({ isNew: true, position: u, name: '', type: 'Server', height: 1, status: 'attivo' });
+    const handleDeviceClick = (dev) => setSelectedDevice({ ...dev, isNew: false });
+
     const saveDevicePosition = async (e) => {
       e.preventDefault();
       let updatedDevices = [...devices];
@@ -270,23 +274,27 @@ export default function App() {
       if (selectedDevice.isNew) {
         const newDev = { ...selectedDevice, rackId: selectedRack.id, locationType: 'rack', ports: [] };
         if (apiStatus === 'connected') {
-          const res = await fetch('/api/v1/devices', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newDev)
-          });
-          const created = await res.json();
-          updatedDevices.push(created);
+          try {
+            const res = await fetch('/api/v1/devices', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newDev)
+            });
+            const created = await res.json();
+            updatedDevices.push(created);
+          } catch(e) { console.error(e); }
         } else {
           updatedDevices.push({ ...newDev, id: Date.now() });
         }
       } else {
         if (apiStatus === 'connected') {
-          await fetch(`/api/v1/devices/${selectedDevice.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ height: selectedDevice.height, position: selectedDevice.position })
-          });
+          try {
+            await fetch(`/api/v1/devices/${selectedDevice.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ height: selectedDevice.height, position: selectedDevice.position })
+            });
+          } catch(e) { console.error(e); }
         }
         updatedDevices = devices.map(d => d.id === selectedDevice.id ? { ...d, height: selectedDevice.height, position: selectedDevice.position } : d);
       }
@@ -473,14 +481,78 @@ export default function App() {
     const validTypesNames = validTypes.map(t => t.name);
     const filteredDevices = devices.filter(d => validTypesNames.includes(d.type));
 
+    const [isAdding, setIsAdding] = useState(false);
+    const [newDevice, setNewDevice] = useState({ name: '', type: validTypesNames[0] || '', ip: '' });
+
+    const handleAdd = async (e) => {
+      e.preventDefault();
+      // Creiamo l'oggetto del dispositivo generico (non posizionato in un Rack per ora)
+      const devToSave = {
+        ...newDevice,
+        id: Date.now(),
+        locationType: 'other',
+        rackId: null,
+        position: null,
+        height: 1,
+        status: 'attivo',
+        ports: []
+      };
+
+      if (apiStatus === 'connected') {
+        try {
+          const res = await fetch('/api/v1/devices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(devToSave)
+          });
+          const created = await res.json();
+          setDevices([...devices, created]);
+        } catch(e) { console.error(e); }
+      } else {
+        setDevices([...devices, devToSave]);
+      }
+      setIsAdding(false);
+      setNewDevice({ name: '', type: validTypesNames[0] || '', ip: '' });
+    };
+
+    const handleDelete = async (id) => {
+      if (apiStatus === 'connected') {
+        try {
+          await fetch(`/api/v1/devices/${id}`, { method: 'DELETE' });
+        } catch(e) { console.error(e); }
+      }
+      setDevices(devices.filter(d => d.id !== id));
+    };
+
     return (
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-          <button className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-blue-700 shadow-sm">
+          <button onClick={() => setIsAdding(!isAdding)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-blue-700 shadow-sm">
             <Plus size={18} /> <span>Aggiungi Apparato</span>
           </button>
         </div>
+
+        {isAdding && (
+          <form onSubmit={handleAdd} className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 mb-6 flex gap-4 items-end animate-in fade-in slide-in-from-top-4">
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome Apparato</label>
+              <input required type="text" className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" value={newDevice.name} onChange={e => setNewDevice({...newDevice, name: e.target.value})} placeholder="Es. SW-CORE-02" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tipo</label>
+              <select className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" value={newDevice.type} onChange={e => setNewDevice({...newDevice, type: e.target.value})}>
+                {validTypes.map(dt => <option key={dt.id} value={dt.name}>{dt.name}</option>)}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Indirizzo IP</label>
+              <input type="text" className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" value={newDevice.ip} onChange={e => setNewDevice({...newDevice, ip: e.target.value})} placeholder="Es. 192.168.1.10" />
+            </div>
+            <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 h-[42px] shadow-sm">Salva</button>
+          </form>
+        )}
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-50">
@@ -492,17 +564,23 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {filteredDevices.map(dev => (
-                <tr key={dev.id} className="border-t border-gray-100 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-blue-600">{dev.name}</td>
-                  <td className="py-3 px-4 text-gray-800">{dev.type}</td>
-                  <td className="py-3 px-4 text-gray-600 font-mono text-sm">{dev.ip || '-'}</td>
-                  <td className="py-3 px-4 text-right space-x-2">
-                     <button className="text-gray-500 hover:text-blue-600 p-1"><Edit size={16}/></button>
-                     <button onClick={() => setDevices(devices.filter(d => d.id !== dev.id))} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
-                  </td>
+              {filteredDevices.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="py-6 text-center text-gray-500 font-medium">Nessun apparato registrato in questa categoria.</td>
                 </tr>
-              ))}
+              ) : (
+                filteredDevices.map(dev => (
+                  <tr key={dev.id} className="border-t border-gray-100 hover:bg-gray-50">
+                    <td className="py-3 px-4 font-medium text-blue-600">{dev.name}</td>
+                    <td className="py-3 px-4 text-gray-800">{dev.type}</td>
+                    <td className="py-3 px-4 text-gray-600 font-mono text-sm">{dev.ip || '-'}</td>
+                    <td className="py-3 px-4 text-right space-x-2">
+                      <button className="text-gray-500 hover:text-blue-600 p-1"><Edit size={16}/></button>
+                      <button onClick={() => handleDelete(dev.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
